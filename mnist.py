@@ -574,20 +574,25 @@ def run():
         acc_ = _acc_fn(logits, labels)
         return acc_, total_loss_, loss_, r2_reg_, fro_reg_, kin_reg_
 
-    def evaluate_loss(opt_state, _key, ds_train_eval):
+    def evaluate_loss(opt_state, _key, ds_train_eval, num_test_batches):
         """
         Convenience function for evaluating loss over train set in smaller batches.
         """
         sep_acc_, sep_loss_aug_, sep_loss_, \
         sep_loss_r2_reg_, sep_loss_fro_reg_, sep_loss_kin_reg_, nfe = [], [], [], [], [], [], []
 
+        timings = []
+
         for test_batch_num in range(num_test_batches):
             test_batch = next(ds_train_eval)
             _key, = jax.random.split(_key, num=1)
 
+            start_time = time.time()
             test_batch_acc_, test_batch_loss_aug_, test_batch_loss_, \
             test_batch_loss_r2_reg_, test_batch_loss_fro_reg_, test_batch_loss_kin_reg_ = \
                 sep_losses(opt_state, test_batch, _key)
+            total_time = time.time() - start_time
+            timings.append(total_time)
 
             if count_nfe:
                 nfe.append(model["nfe"](get_params(opt_state), *test_batch))
@@ -609,6 +614,8 @@ def run():
         sep_loss_kin_reg_ = jnp.array(sep_loss_kin_reg_)
         nfe = jnp.array(nfe)
 
+        print(f"Timing: {jnp.mean(timings)}")
+
         return jnp.mean(sep_acc_), jnp.mean(sep_loss_aug_), jnp.mean(sep_loss_), \
                jnp.mean(sep_loss_r2_reg_), jnp.mean(sep_loss_fro_reg_), jnp.mean(sep_loss_kin_reg_), jnp.mean(nfe)
 
@@ -616,6 +623,10 @@ def run():
     info = collections.defaultdict(dict)
 
     key = rng
+
+    print("Filename -- %s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_time.txt" % (dirname, reg, reg_type, lam, lam_fro, lam_kin))
+    print("Filename -- %s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_info.txt" % (dirname, reg, reg_type, lam, lam_fro, lam_kin))
+    print("Filename -- %s/reg_%s_%s_lam_%.18e_lam_fro_%.18e_lam_kin_%.18e_meta.pickle" % (dirname, reg, reg_type, lam, lam_fro, lam_kin))
 
     for epoch in range(parse_args.nepochs):
         for i in range(num_batches):
@@ -641,11 +652,20 @@ def run():
 
             if itr % parse_args.test_freq == 0:
                 acc_, loss_aug_, loss_, \
-                loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_ = evaluate_loss(opt_state, key, ds_train_eval)
+                loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_ = evaluate_loss(opt_state, key, ds_train, num_batches)
 
-                print_str = 'Iter {:04d} | Total (Regularized) Loss {:.6f} | Loss {:.6f} | ' \
+                print_str = 'Train:: Iter {:04d} | Accuracy {:.6f} | Total (Regularized) Loss {:.6f} | Loss {:.6f} | ' \
                             'r {:.6f} | fro {:.6f} | kin {:.6f} | ' \
-                            'NFE {:.6f}'.format(itr, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
+                            'NFE {:.6f}'.format(itr, acc_, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
+
+                print(print_str)
+
+                acc_, loss_aug_, loss_, \
+                loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_ = evaluate_loss(opt_state, key, ds_train_eval, num_test_batches)
+
+                print_str = 'Test:: Iter {:04d} | Accuracy {:.6f} | Total (Regularized) Loss {:.6f} | Loss {:.6f} | ' \
+                            'r {:.6f} | fro {:.6f} | kin {:.6f} | ' \
+                            'NFE {:.6f}'.format(itr, acc_, loss_aug_, loss_, loss_r2_reg_, loss_fro_reg_, loss_kin_reg_, nfe_)
 
                 print(print_str)
 
